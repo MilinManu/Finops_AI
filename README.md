@@ -192,4 +192,3 @@ The project currently runs locally using a FastAPI backend and Streamlit fronten
 
 Cloud pricing and VM availability can vary by provider, region, and time. The cost estimates provided by this application are based on the pricing data available in the project's catalogs and are intended for demonstration and analysis purposes.
 
-````

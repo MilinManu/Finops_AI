@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Optional
+from typing import Any
 
 class PredictionRequest(BaseModel):
     application_type: str = Field(..., description="Type of application (e.g., E-Commerce, Blog, Web App)", json_schema_extra={"example": "E-Commerce"})
@@ -17,3 +18,22 @@ class PredictionResponse(BaseModel):
     price_per_hour_usd: Optional[float] = Field(None, description="Estimated hourly cost in USD")
     monthly_cost_usd: Optional[float] = Field(None, description="Estimated monthly cost in USD")
     yearly_cost_usd: Optional[float] = Field(None, description="Estimated yearly cost in USD")
+class GitAnalysisRequest(BaseModel):
+    repository_url: str = Field(
+        ...,
+        description="Public GitHub repository URL",
+        json_schema_extra={
+            "example": "https://github.com/pallets/flask"
+        },
+    )
+
+
+class ProjectAnalysisResponse(BaseModel):
+    source_type: str = Field(
+        ...,
+        description="Project source: zip or git",
+    )
+    project_name: str
+    files_scanned: int
+    static_analysis: dict[str, Any]
+    workload_analysis: Optional[dict[str, Any]] = None

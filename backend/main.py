@@ -2,6 +2,17 @@ import os
 import sys
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+import shutil
+import tempfile
+from pathlib import Path
+
+from fastapi import UploadFile, File
+
+from analyzer.zip_utils import safe_extract_zip
+from analyzer.git_utils import download_git_repository
+from analyzer.static_analyzer import analyze_project
+from backend.schemas import GitAnalysisRequest, ProjectAnalysisResponse
+from backend.ollama_service import analyze_project_facts
 
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(parent_dir)
@@ -66,6 +77,143 @@ def predict_cloud_resources(request: PredictionRequest):
             status_code=500,
             detail=f"An error occurred during prediction: {str(e)}"
         )
+
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+
+def _analyze_workload_safely(static_result: dict) -> dict:
+    """Run Ollama and expose the underlying error during debugging."""
+    try:
+        return analyze_project_facts(static_result)
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return {
+            "status": "unavailable",
+            "message": str(exc),
+        }
+
+
+def _get_project_root(directory: str) -> Path:
+    """Use the inner project folder when a ZIP has one wrapper folder."""
+    root = Path(directory).resolve()
+    entries = list(root.iterdir())
+
+    if (
+        len(entries) == 1
+        and entries[0].is_dir()
+        and entries[0].name not in {".git", "__pycache__"}
+    ):
+        return entries[0]
+
+    return root
+
+
+@app.post(
+    "/api/analyze/zip",
+    response_model=ProjectAnalysisResponse,
+)
+async def analyze_zip_project(
+    file: UploadFile = File(...),
+):
+    """Analyze a project supplied as a ZIP file."""
+    if not file.filename or Path(file.filename).suffix.lower() != ".zip":
+        raise HTTPException(
+            status_code=400,
+            detail="Please upload a .zip file.",
+        )
+
+    upload_path = None
+    extracted_dir = None
+
+    try:
+        # Stream the upload to disk and enforce the size limit.
+        with tempfile.NamedTemporaryFile(
+            suffix=".zip", delete=False
+        ) as temp_file:
+            upload_path = temp_file.name
+            total_bytes = 0
+
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+
+                total_bytes += len(chunk)
+                if total_bytes > MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail="ZIP upload exceeds the 50 MB limit.",
+                    )
+
+                temp_file.write(chunk)
+
+        extracted_dir = safe_extract_zip(upload_path)
+        project_root = _get_project_root(extracted_dir)
+        result = analyze_project(str(project_root))
+        workload_analysis = _analyze_workload_safely(result)
+        
+        return ProjectAnalysisResponse(
+            source_type="zip",
+            project_name=project_root.name,
+            files_scanned=result["files_scanned"],
+            static_analysis=result,
+            workload_analysis=workload_analysis,
+        )
+
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="ZIP analysis failed. Check the uploaded project and server logs.",
+        ) from exc
+    finally:
+        await file.close()
+
+        if upload_path:
+            Path(upload_path).unlink(missing_ok=True)
+
+        if extracted_dir:
+            shutil.rmtree(extracted_dir, ignore_errors=True)
+
+
+@app.post(
+    "/api/analyze/git",
+    response_model=ProjectAnalysisResponse,
+)
+def analyze_git_project(request: GitAnalysisRequest):
+    """Analyze a public GitHub repository."""
+    repository_dir = None
+
+    try:
+        repository_dir = download_git_repository(request.repository_url)
+        project_root = Path(repository_dir).resolve()
+        result = analyze_project(str(project_root))
+        workload_analysis = _analyze_workload_safely(result)
+
+        return ProjectAnalysisResponse(
+            source_type="git",
+            project_name=project_root.name,
+            files_scanned=result["files_scanned"],
+            static_analysis=result,
+            workload_analysis=workload_analysis,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Git repository analysis failed. Check the server logs.",
+        ) from exc
+    finally:
+        if repository_dir:
+            shutil.rmtree(repository_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

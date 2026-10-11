@@ -154,16 +154,48 @@ def predict_resources(
     predicted_ram = max(1, int(round(prediction[0][1])))
 
     # Recommend VM
-    cloud_provider, vm_type, price_per_hour = recommend_vm(
+    # cloud_provider, vm_type, price_per_hour = recommend_vm(
+    #     predicted_vcpu,
+    #     predicted_ram,
+    #     deployment_region
+    # )
+    
+    vm_recommendation = recommend_vm(
         predicted_vcpu,
         predicted_ram,
         deployment_region
     )
 
+    if vm_recommendation is None:
+        raise ValueError(
+            f"No suitable VM found in region '{deployment_region}' "
+            f"for {predicted_vcpu} vCPUs and {predicted_ram} GB RAM."
+        )
+
+    cloud_provider, vm_type, price_per_hour = vm_recommendation
+
     storage_type, storage_cost = calculate_storage_cost(
         cloud_provider,
         storage_required_gb
     )
+
+    if storage_cost is None:
+        raise ValueError(
+            f"No storage option found for provider '{cloud_provider}'."
+        )
+
+    
+    if cloud_provider is None:
+        raise ValueError(
+            f"No suitable VM found in region '{deployment_region}' "
+            f"for {predicted_vcpu} vCPUs and {predicted_ram} GB RAM."
+        )
+
+
+    # storage_type, storage_cost = calculate_storage_cost(
+    #     cloud_provider,
+    #     storage_required_gb
+    # )
 
     compute_monthly_cost = float(
         round(price_per_hour * 24 * 30, 2)
