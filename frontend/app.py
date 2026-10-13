@@ -314,7 +314,7 @@ def render_project_workload_form(result, form_key):
 
         try:
             response = requests.post(
-                "http://127.0.0.1:8001/api/predict",
+                "http://127.0.0.1:8000/api/predict",
                 json=payload,
                 timeout=60,
             )
@@ -554,7 +554,7 @@ elif workflow == "Upload ZIP":
         else:
             try:
                 response = requests.post(
-                    "http://127.0.0.1:8001/api/analyze/zip",
+                    "http://127.0.0.1:8000/api/analyze/zip",
                     files={
                         "file": (
                             uploaded_file.name,
@@ -597,7 +597,7 @@ elif workflow == "Git Repository":
         else:
             try:
                 response = requests.post(
-                    "http://127.0.0.1:8001/api/analyze/git",
+                    "http://127.0.0.1:8000/api/analyze/git",
                     json={"repository_url": repository_url.strip()},
                     timeout=180,
                 )

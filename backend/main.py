@@ -20,6 +20,10 @@ sys.path.append(os.path.join(parent_dir, "ml"))
 
 from ml.predict import predict_resources
 from backend.schemas import PredictionRequest, PredictionResponse
+from backend.auth import init_db, auth_router
+
+# Initialize authentication SQLite database
+init_db()
 
 app = FastAPI(
     title="FinOps AI Cost Optimizer API",
@@ -34,6 +38,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount authentication router for reusable-auth integration
+app.include_router(auth_router, prefix="/api/auth")
+app.include_router(auth_router, prefix="/auth")
+app.include_router(auth_router, prefix="/api")
 
 
 @app.get("/")

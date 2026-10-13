@@ -122,7 +122,7 @@ Queries the prediction engine to evaluate required resources and recommend a VM.
   "expected_users_per_day": 25000,
   "concurrent_users": 600,
   "storage_required_gb": 300,
-  "deployment_region": "ap-south-1",
+  "deployment_region": "asia-south",
   "traffic_pattern": "High"
 }
 ```

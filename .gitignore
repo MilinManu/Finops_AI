@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
 
 # Jupyter
 .ipynb_checkpoints/
@@ -12,10 +13,31 @@ env/
 
 # Environment Variables
 .env
+.env.local
 
-# VS Code
+# VS Code & IDE
 .vscode/
+.idea/
 
 # OS files
 .DS_Store
 Thumbs.db
+
+# Databases
+*.db
+
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+*.tsbuildinfo
+frontend/*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Backups & Archives
+*.bak
+*.tmp
+*.zip

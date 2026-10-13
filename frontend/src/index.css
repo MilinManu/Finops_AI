@@ -1,0 +1,137 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Smooth scrolling and touch physics */
+html {
+  scroll-behavior: smooth;
+  -webkit-tap-highlight-color: transparent;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  background-color: #ECEEEB;
+  color: #11241A;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+/* Subtle brand selection */
+::selection {
+  background-color: #C6F6D9;
+  color: #124C37;
+}
+
+/* Global smooth interaction physics (Apple / Linear easing) */
+button, a, input, select, textarea {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  transition-duration: 200ms;
+}
+
+/* Tactile button press feedback */
+button:active:not(:disabled), a:active:not(:disabled) {
+  transform: scale(0.985);
+  transition-duration: 80ms;
+}
+
+/* Hardware acceleration for rounded cards and layout containers to eliminate frame stutters */
+.rounded-2xl, .rounded-3xl, .rounded-\[28px\], .rounded-\[32px\], .rounded-\[36px\] {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Silky smooth route / page entrance */
+main {
+  animation: smoothPageFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes smoothPageFadeIn {
+  from {
+    opacity: 0.65;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Custom delicate scrollbar with smooth thumb transition */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+  transition: background-color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Diagonal striped pattern for unfinished or idle cloud spend pills */
+.bg-striped-pattern {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    #D5DFDB,
+    #D5DFDB 3.5px,
+    #E8EFEB 3.5px,
+    #E8EFEB 7.5px
+  );
+}
+
+.bg-striped-pattern-subtle {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(20, 77, 52, 0.18),
+    rgba(20, 77, 52, 0.18) 3px,
+    rgba(20, 77, 52, 0.04) 3px,
+    rgba(20, 77, 52, 0.04) 6.5px
+  );
+}
+
+.diagonal-hatch {
+  background: repeating-linear-gradient(
+    -45deg,
+    #e2e8f0,
+    #e2e8f0 3px,
+    #f8fafc 3px,
+    #f8fafc 8px
+  );
+}
+
+.custom-shadow {
+  box-shadow: 0px 2px 4px -1px rgba(18, 43, 30, 0.03), 0px 6px 16px -2px rgba(18, 43, 30, 0.05);
+}
+
+@keyframes subtle-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.02); }
+}
+
+.animate-subtle-pulse {
+  animation: subtle-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
