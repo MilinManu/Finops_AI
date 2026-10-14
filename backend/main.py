@@ -5,6 +5,16 @@ from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import tempfile
 from pathlib import Path
+import time
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+    force=True,
+)
+
+logger = logging.getLogger(__name__)
 
 from fastapi import UploadFile, File
 
@@ -189,21 +199,58 @@ async def analyze_zip_project(
             shutil.rmtree(extracted_dir, ignore_errors=True)
 
 
+
 @app.post(
     "/api/analyze/git",
     response_model=ProjectAnalysisResponse,
 )
 def analyze_git_project(request: GitAnalysisRequest):
-    """Analyze a public GitHub repository."""
+    """Analyze a public GitHub repository and log stage timings."""
     repository_dir = None
+    request_start = time.perf_counter()
 
     try:
+        # Stage 1: Download repository
+        stage_start = time.perf_counter()
+        logger.info("Git analysis: starting repository download")
+
         repository_dir = download_git_repository(request.repository_url)
+
+        logger.info(
+            "Git analysis: repository download completed in %.2f seconds",
+            time.perf_counter() - stage_start,
+        )
+
         project_root = Path(repository_dir).resolve()
+
+        # Stage 2: Static code analysis
+        stage_start = time.perf_counter()
+        logger.info("Git analysis: starting static analysis")
+
         result = analyze_project(str(project_root))
+
+        logger.info(
+            "Git analysis: static analysis completed in %.2f seconds; "
+            "files scanned: %s",
+            time.perf_counter() - stage_start,
+            result.get("files_scanned", "unknown"),
+        )
+
+        # Stage 3: Ollama workload analysis
+        stage_start = time.perf_counter()
+        logger.info("Git analysis: starting workload analysis")
+
         workload_analysis = _analyze_workload_safely(result)
 
-        return ProjectAnalysisResponse(
+        logger.info(
+    "Git analysis: workload analysis completed in %.2f seconds; "
+    "application type: %s",
+    time.perf_counter() - stage_start,
+    workload_analysis.get("application_type", "unknown"),
+)
+
+        # Stage 4: Build API response
+        response = ProjectAnalysisResponse(
             source_type="git",
             project_name=project_root.name,
             files_scanned=result["files_scanned"],
@@ -211,20 +258,33 @@ def analyze_git_project(request: GitAnalysisRequest):
             workload_analysis=workload_analysis,
         )
 
+        logger.info(
+            "Git analysis: request completed in %.2f seconds",
+            time.perf_counter() - request_start,
+        )
+
+        return response
+
     except ValueError as exc:
+        logger.warning("Git analysis input error: %s", exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     except RuntimeError as exc:
+        logger.warning("Git analysis runtime error: %s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     except Exception as exc:
+        logger.exception("Git repository analysis failed")
         raise HTTPException(
             status_code=500,
             detail="Git repository analysis failed. Check the server logs.",
         ) from exc
+
     finally:
         if repository_dir:
             shutil.rmtree(repository_dir, ignore_errors=True)
 
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("backend.main:app", host="127.0.0.1", port=8000, reload=True)
+        logger.info(
+            "Git analysis: request cleanup finished; total elapsed %.2f seconds",
+            time.perf_counter() - request_start,
+        )

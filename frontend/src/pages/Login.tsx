@@ -253,7 +253,7 @@ export const Login: React.FC = () => {
             {/* Cloud-Provider Cost-Intelligence Footer */}
             <div className="pt-3 border-t border-white/10 flex items-center justify-center gap-1.5 text-[11px] text-[#C6F6D9] font-bold">
               <Cloud className="w-3.5 h-3.5 text-[#C6F6D9]" />
-              <span>AWS &bull; Azure &bull; GCP Cost Intelligence</span>
+              <span>AWS • Azure • GCP Cost Intelligence</span>
             </div>
           </div>
         </div>
