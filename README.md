@@ -182,7 +182,3 @@ models/     Trained model artifacts
     production monitoring or load testing.
 -   Only analyze repositories and archives you are authorized to use.
 
-## License
-
-This project is licensed under the MIT License. See [`LICENSE`](LICENSE)
-if present in the repository.
