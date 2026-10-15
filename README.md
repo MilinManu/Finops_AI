@@ -1,194 +1,188 @@
-# FinOps – ML-Based Cloud Cost Optimization
+# FinOps AI --- Intelligent Cloud Cost Optimization
 
-FinOps is a machine-learning-based cloud cost optimization system that predicts the cloud compute resources (vCPU, RAM) required for an application based on its workload characteristics, and recommends the most suitable and cost-effective virtual machine (VM) instance across AWS, Azure, and GCP, along with estimated cloud costs.
-
----
+FinOps AI analyzes a software project, estimates its compute
+requirements, and compares virtual-machine costs across **AWS, Microsoft
+Azure, and Google Cloud Platform (GCP)**.
 
 ## Features
 
-- **Workload Resource Prediction:** Predicts required vCPU and RAM capacity using a trained Machine Learning model.
-- **Cheapest VM Recommendation:** Evaluates and recommends the cheapest suitable VM from AWS, Azure, and GCP instance catalogs.
-- **Dynamic Cost Projection:** Estimates hourly, monthly, and yearly costs, combining VM compute rates and SSD block storage costs ($0.10/GB-month).
-- **FastAPI Backend Integration:** REST API with Pydantic validation and interactive auto-generated Swagger documentation.
-- **Streamlit Dashboard Frontend:** Interactive dashboard with workload inputs, cost metrics, and VM recommendations.
+-   **Analyze a project:** Submit a public GitHub repository URL or
+    upload a ZIP archive.
+-   **Detect the technology stack:** Identify languages, frameworks,
+    databases, APIs, and infrastructure files.
+-   **Classify the workload:** Use a local Ollama language model, with a
+    rule-based fallback.
+-   **Estimate resources:** Predict required vCPU and RAM from workload
+    inputs using a trained machine-learning model.
+-   **Compare cloud costs:** Match predicted resources against the
+    project's cloud VM catalog and estimate hourly, monthly, and yearly
+    costs.
+-   **Track activity:** Use account authentication and analysis history.
 
----
+## Tech Stack
 
-## Project Structure
+-   **Frontend:** React, TypeScript, Vite, Tailwind CSS
+-   **Backend:** Python, FastAPI, Uvicorn
+-   **Machine learning:** scikit-learn, Pandas, NumPy
+-   **Local AI:** Ollama
+-   **Data and pricing:** CSV catalogs; SQLite for
+    authentication/history
 
-```text
-FinOps-ML-Based-Cloud-Cost-Optimization/
-│
-├── backend/                       # FastAPI Backend API
-│   ├── main.py                    # API routing, CORS middleware, and inference endpoint
-│   └── schemas.py                 # Pydantic validation schemas for requests/responses
-│
-├── frontend/                      # Streamlit UI Dashboard
-│   └── app.py                     # Dashboard inputs, API calls, and metric cards
-│
-├── datasets/                      # Training Dataset
-│   └── ml_training_dataset_v5.csv
-│
-├── jupyter/                       # ML Development Notebooks
-│   ├── 01_EDA.ipynb               # Exploratory Data Analysis
-│   ├── 02_Preprocessing.ipynb     # Data preprocessing and cleaning
-│   ├── 03_ModelTraining.ipynb     # Model training
-│   ├── 04_ModelTesting.ipynb      # Model evaluation
-│   └── 05_ModelVisualization.ipynb# Feature importance and visualization
-│
-├── ml/                            # ML Prediction Module
-│   ├── predict.py                 # Inference runner and cost estimation formula
-│   ├── preprocess.py              # Input preprocessing and feature alignment
-│   ├── region_pricing.csv         # Regional pricing data
-│   ├── storage_catalog.csv        # Storage pricing catalog
-│   └── vm_catalog.csv             # Cloud instance specifications and pricing
-│
-├── models/                        # Trained ML Models
-│   ├── cloud_model.pkl            # Saved Random Forest model
-│   └── model_features.pkl         # Saved model feature mappings
-│
-├── requirements.txt               # Python dependencies
-└── README.md                      # Project documentation
-````
+## Requirements
 
----
+-   Python 3.10 or later
+-   Node.js 18 or later and npm
+-   Git
+-   Ollama (recommended for AI-based workload classification)
 
-## Technology Stack
+## Run Locally
 
-* **Backend:** FastAPI, Uvicorn, Pydantic
-* **Frontend:** Streamlit, Requests
-* **Machine Learning:** Scikit-learn (Random Forest), Pandas, NumPy, Joblib, Matplotlib
+### 1. Clone the repository
 
----
-
-## Installation & Setup
-
-### 1. Clone the Repository
-
-```bash
-git clone https://github.com/YaassinMD/FinOps-ML-Based-Cloud-Cost-Optimization.git
-cd FinOps-ML-Based-Cloud-Cost-Optimization
+``` bash
+git clone https://github.com/MilinManu/Finops_AI.git
+cd Finops_AI
 ```
 
-### 2. Install Dependencies
+### 2. Set up the backend
 
-Make sure you have Python 3.11+ installed, then run:
+Create and activate a virtual environment.
 
-```bash
-pip install -r requirements.txt
+**Windows PowerShell**
+
+``` powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 ```
 
----
+**macOS / Linux**
 
-## How to Run
-
-To run the application, you will need to start both the backend API and the frontend dashboard in separate terminal windows.
-
-### Step 1: Start the FastAPI Backend
-
-From the project root directory, run:
-
-```bash
-python -m uvicorn backend.main:app --reload
+``` bash
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
-* **API Base URL:** `http://127.0.0.1:8000`
-* **Interactive Swagger Docs:** `http://127.0.0.1:8000/docs`
-* **Alternative ReDoc Docs:** `http://127.0.0.1:8000/redoc`
+Install the Python dependencies and start the API:
 
-### Step 2: Start the Streamlit Frontend
-
-From the project root directory in a new terminal, run:
-
-```bash
-streamlit run frontend/app.py
+``` bash
+python -m pip install -r requirements.txt
+python -m uvicorn backend.main:app --reload --port 8000
 ```
 
-* **Streamlit Local URL:** `http://localhost:8501`
+The API runs at `http://127.0.0.1:8000`. Interactive API documentation
+is available at `http://127.0.0.1:8000/docs`.
 
----
+### 3. Install and start Ollama
 
-## API Specifications
+Download and install Ollama from
+[ollama.com/download](https://ollama.com/download).
 
-### `POST /api/predict`
+Pull the model used by the local AI service:
 
-Queries the prediction engine to evaluate required resources and recommend a VM.
-
-**Request Body (`PredictionRequest`):**
-
-```json
-{
-  "application_type": "E-Commerce",
-  "expected_users_per_day": 25000,
-  "concurrent_users": 600,
-  "storage_required_gb": 300,
-  "deployment_region": "asia-south",
-  "traffic_pattern": "High"
-}
+``` bash
+ollama pull qwen2.5:3b
 ```
 
-**Response Body (`PredictionResponse`):**
+Confirm that the model is installed:
 
-```json
-{
-  "predicted_vcpu": 2,
-  "predicted_ram_gb": 4,
-  "cloud_provider": "GCP",
-  "recommended_vm": "e2-medium",
-  "price_per_hour_usd": 0.033,
-  "monthly_cost_usd": 53.76,
-  "yearly_cost_usd": 645.12
-}
+``` bash
+ollama list
 ```
 
----
+Ollama normally runs as a background service after installation. If it
+is not running, start it in a separate terminal:
 
-## Cost Calculation Architecture
+``` bash
+ollama serve
+```
 
-The total monthly cost is computed by combining:
+To test the model directly:
 
-1. **VM Compute Rate:** The hourly instance rate fetched from the `vm_catalog.csv` catalog, mapped to 720 hours/month (24 hours × 30 days).
-2. **SSD Storage Volume Rate:** Evaluated at a standard SSD block storage rate of **$0.10/GB per month**.
+``` bash
+ollama run qwen2.5:3b
+```
 
-$$
-\text{Total Monthly Cost} =
-(\text{VM Hourly Price} \times 24 \times 30)
-+
-(\text{Storage Required (GB)} \times \$0.10)
-$$
+Enter a prompt, then type `/bye` to exit. Keep Ollama running while
+using AI-based classification. If Ollama is unavailable, the application
+may use its rule-based fallback.
 
----
+### 4. Start the React frontend
 
-## Machine Learning Workflow
+Open a **second terminal** from the repository root:
 
-The Machine Learning pipeline follows these stages:
+``` bash
+cd frontend
+npm install
+npm run dev
+```
 
-1. **Exploratory Data Analysis:** Analyze workload and resource-related patterns in the dataset.
-2. **Data Preprocessing:** Clean the dataset and prepare categorical and numerical features.
-3. **Feature Engineering:** Prepare workload characteristics used by the model.
-4. **Model Training:** Train a Random Forest model using the prepared features.
-5. **Model Testing:** Evaluate the trained model on test data.
-6. **Prediction:** Use the trained model to predict required vCPU and RAM for new workloads.
-7. **VM Recommendation:** Match the predicted resource requirements against available VM instances and identify a cost-effective option.
+Open the local URL printed by Vite, usually `http://localhost:5173`.
 
----
+### Optional: Streamlit interface
 
-## Future Enhancements
+If you want to use the Python demo interface instead, install the
+dependencies above and run:
 
-* **Model Improvement & Retraining:** Incorporate additional workload features and tune the model to improve resource prediction across different application scenarios.
-* **Real-Time Pricing APIs:** Integrate cloud provider pricing APIs (e.g., AWS Price List API) to pull live, region-specific VM pricing.
-* **Kubernetes Optimization:** Add recommendation support for container pods and Kubernetes autoscaling limits.
-* **Multi-Cloud Comparison:** Show side-by-side cost comparisons for the same workload across AWS, Azure, and GCP.
+``` bash
+python -m streamlit run frontend/app.py
+```
 
----
+The Streamlit interface is optional; the recommended interface is
+React + Vite.
 
-## Project Status
+## API Endpoints
 
-The project currently runs locally using a FastAPI backend and Streamlit frontend. The ML model and cloud pricing catalogs are integrated into the application to provide workload-based resource predictions and VM cost recommendations.
+  -----------------------------------------------------------------------
+  Method                  Endpoint                Purpose
+  ----------------------- ----------------------- -----------------------
+  `POST`                  `/api/predict`          Predict compute
+                                                  resources and compare
+                                                  cloud VM costs
 
----
+  `POST`                  `/api/analyze/git`      Analyze a public GitHub
+                                                  repository
 
-## Disclaimer
+  `POST`                  `/api/analyze/zip`      Analyze an uploaded ZIP
+                                                  project
 
-Cloud pricing and VM availability can vary by provider, region, and time. The cost estimates provided by this application are based on the pricing data available in the project's catalogs and are intended for demonstration and analysis purposes.
+  `POST`                  `/api/auth/register`    Create an account
 
+  `POST`                  `/api/auth/login`       Log in and receive a
+                                                  token
+
+  `GET`                   `/api/auth/me`          Get the current user's
+                                                  profile
+
+  `GET`                   `/api/auth/history`     Retrieve saved
+                                                  analysis/prediction
+                                                  history
+  -----------------------------------------------------------------------
+
+For request schemas and interactive testing, visit
+`http://127.0.0.1:8000/docs` after starting the backend.
+
+## Project Layout
+
+``` text
+analyzer/   Git/ZIP handling and static code analysis
+backend/    FastAPI routes, authentication, and Ollama integration
+datasets/   Machine-learning training data
+frontend/   React + TypeScript application and optional Streamlit UI
+jupyter/    Model exploration, training, and evaluation notebooks
+ml/         Prediction logic and cloud pricing/catalog data
+models/     Trained model artifacts
+```
+
+## Notes
+
+-   Cloud prices are estimates based on the repository's bundled
+    catalogs and pricing assumptions; they may not reflect current
+    provider prices.
+-   Resource recommendations are estimates, not a substitute for
+    production monitoring or load testing.
+-   Only analyze repositories and archives you are authorized to use.
+
+## License
+
+This project is licensed under the MIT License. See [`LICENSE`](LICENSE)
+if present in the repository.
