@@ -873,174 +873,348 @@ def _has_grounded_model_evidence(analysis, compact_facts, expected_type=None):
 
 
 
-def analyze_project_facts(project_facts: dict) -> dict:
+def _analyze_project_facts_from_static_context(project_facts: dict) -> dict:
+    """Run Ollama for application-type classification on every analysis.
 
+    Static analysis remains responsible for repository facts, workload indicators,
+    complexity, containerization, and orchestration. Ollama only selects an
+    application type; the existing rule-based classifier is the fallback.
     """
+    import logging
+    import time
 
-    Fast path: confidently classify with static evidence and skip Ollama.
-
-    Ambiguous projects use Ollama as a fallback. Manual-input/Random Forest
-
-    prediction is a separate endpoint and is not changed by this service.
-
-    """
-
+    logger = logging.getLogger(__name__)
     rule_type, rule_confidence, rule_evidence = classify_application_type(project_facts)
-
-    if rule_type and rule_confidence == "high":
-
-        return _base_analysis(project_facts, rule_type, rule_confidence, rule_evidence)
-
-
-
+    compact_facts = _compact_model_context(project_facts)
     valid_types = ", ".join(sorted(APPLICATION_TYPES))
 
-    # Strictly bounded context prevents large repositories from creating huge prompts.
-
-    compact_facts = _compact_model_context(project_facts)
-
     prompt = f"""
-
-You classify software repositories for a cloud cost analysis tool.
-
-Choose exactly one best-supported label from this fixed list, or null if evidence is insufficient:
-
+Classify the primary application type of this software repository for a cloud cost
+optimization tool. Choose exactly one label from this list, or null if the evidence
+is insufficient:
 {valid_types}
 
+Use the repository's purpose and behavior, not framework names alone. Consider README
+text, manifest metadata, UI copy, domain entities, routes, and source code. Ignore
+unrelated dependencies, tests, fixtures, and generic words. Do not invent evidence.
 
+Return JSON with exactly these keys:
+- application_type: one listed label or null
+- confidence: low, medium, or high
+- evidence: up to 3 objects with file and quote; each quote must be an exact substring
+  from the supplied source evidence
 
-Use repository purpose and behavior, not framework names alone. Evidence can come from project descriptions,
-
-README text, manifest metadata, UI components, page copy, domain entities, routes, and service logic.
-
-Different languages and architectures can implement the same application category. A frontend-only site
-
-can be classified if its actual content supports a category. Do not require any particular filename or framework.
-
-Do not classify from generic words alone. Ignore test-only examples, sample fixtures, unrelated dependencies,
-
-and incidental keyword matches. When evidence conflicts, explain the conflict and lower confidence.
-
-
-
-Return JSON with: application_type, architecture_complexity, database_intensity, background_processing,
-
-containerized, orchestrated, ml_workload_detected, expected_users_per_day, concurrent_users,
-
-deployment_region, storage_required_gb, traffic_pattern, evidence, unknown_fields, confidence.
-
-For application_type, use one listed label or null. confidence must be low/medium/high.
-
-For evidence, return up to 3 objects with keys "file" and "quote". Quotes must be short, verbatim substrings
-
-from the supplied source evidence. Do not invent filenames or quotes. If no direct supporting quote exists,
-
-return application_type=null and confidence=low.
-
-Never infer actual traffic, users, concurrency, region, storage, CPU, RAM, or database intensity from code.
-
-Keep those values null (database_intensity="unknown"). Docker Compose indicates containerization, not necessarily
-
-orchestration. Do not treat a missing config as proof of absence unless the static report explicitly says false.
-
-
+If the evidence is insufficient, return application_type=null, confidence=low, evidence=[].
+Do not estimate infrastructure, traffic, users, storage, CPU, RAM, region, or cost.
 
 BOUNDED REPOSITORY EVIDENCE:
-
 {json.dumps(compact_facts, ensure_ascii=False)}
-
 """
 
     payload = {
-
         "model": OLLAMA_MODEL,
-
         "messages": [
-
-            {"role": "system", "content": "Classify software projects conservatively using evidence. Never fabricate measurements."},
-
+            {
+                "role": "system",
+                "content": "Classify only the application type using repository evidence. Never fabricate labels, filenames, or quotes.",
+            },
             {"role": "user", "content": prompt},
-
         ],
-
         "format": "json",
-
         "stream": False,
-
         "options": {"temperature": 0},
-
     }
-
     request = urllib.request.Request(
-
-        OLLAMA_URL, data=json.dumps(payload).encode("utf-8"),
-
-        headers={"Content-Type": "application/json"}, method="POST",
-
+        OLLAMA_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
     )
 
+    started = time.perf_counter()
+    logger.info("[Ollama] Application-type classification request started; model=%s", OLLAMA_MODEL)
     try:
-
         with urllib.request.urlopen(request, timeout=60) as response:
+            raw_result = json.loads(response.read().decode("utf-8"))
+        logger.info("[Ollama] Application-type response received in %.2f seconds", time.perf_counter() - started)
 
-            result = json.loads(response.read().decode("utf-8"))
-
-        analysis = json.loads(result.get("message", {}).get("content", ""))
-
+        analysis = json.loads(raw_result.get("message", {}).get("content", ""))
         if not isinstance(analysis, dict):
-
             raise ValueError("Ollama did not return a JSON object.")
 
-        analysis = validate_workload_analysis(analysis, project_facts)
+        model_type = analysis.get("application_type")
+        model_confidence = str(analysis.get("confidence", "low")).casefold()
+        if model_type not in APPLICATION_TYPES:
+            model_type = None
 
-        # Do not accept a confident-looking label without grounded evidence.
+        grounded = bool(
+            model_type
+            and model_confidence in {"medium", "high"}
+            and _has_grounded_model_evidence(analysis, compact_facts, model_type)
+        )
 
-        if analysis.get("application_type") and not _has_grounded_model_evidence(analysis, compact_facts, analysis.get("application_type")):
+        if grounded:
+            selected_type = model_type
+            selected_confidence = model_confidence
+            selected_evidence = [
+                {
+                    "file": str(item.get("file", "")),
+                    "quote": str(item.get("quote", "")),
+                    "source": "ollama",
+                }
+                for item in analysis.get("evidence", [])
+                if isinstance(item, dict)
+            ]
+            logger.info("[Ollama] Validated application type: %s (confidence=%s)", selected_type, selected_confidence)
+        else:
+            selected_type = rule_type
+            selected_confidence = rule_confidence if rule_type else "low"
+            selected_evidence = list(rule_evidence) if rule_type else [
+                "Ollama classification was inconclusive or its evidence could not be validated."
+            ]
+            logger.warning(
+                "[Ollama] Model result was not accepted; using rule-based fallback: %s",
+                selected_type or "Unknown",
+            )
 
-            if rule_type:
-
-                return _base_analysis(project_facts, rule_type, rule_confidence, rule_evidence)
-
-            analysis["application_type"] = None
-
-            analysis["confidence"] = "low"
-
-            analysis["evidence"] = []
-
-            if "application_type" not in analysis.get("unknown_fields", []):
-
-                analysis.setdefault("unknown_fields", []).append("application_type")
-
-        return analysis
-
-
+        # Build all non-application-type workload fields from static facts, not Ollama.
+        result = _base_analysis(
+            project_facts,
+            selected_type,
+            selected_confidence,
+            selected_evidence,
+        )
+        result["application_type_source"] = "ollama" if grounded else ("rules_fallback" if rule_type else "unknown")
+        logger.info(
+            "[Classification] Final application type=%s; source=%s; total classification time=%.2fs",
+            selected_type or "Unknown",
+            result["application_type_source"],
+            time.perf_counter() - started,
+        )
+        return result
 
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as exc:
-
-        print(f"[Ollama] Analysis failed: {type(exc).__name__}: {exc}")
-
+        logger.exception("[Ollama] Application-type classification failed after %.2f seconds", time.perf_counter() - started)
         if isinstance(exc, urllib.error.HTTPError):
+            logger.error("[Ollama] HTTP status: %s", exc.code)
+            try:
+                logger.error("[Ollama] Response body: %s", exc.read().decode("utf-8", errors="replace"))
+            except Exception:
+                pass
 
-            print(f"[Ollama] HTTP status: {exc.code}")
+        # Ollama failure must not interrupt the existing analysis pipeline.
+        selected_type = rule_type
+        selected_confidence = rule_confidence if rule_type else "low"
+        selected_evidence = list(rule_evidence) if rule_type else [
+            "Ollama was unavailable and rule-based classification found no supported type."
+        ]
+        result = _base_analysis(project_facts, selected_type, selected_confidence, selected_evidence)
+        result["application_type_source"] = "rules_fallback" if rule_type else "unknown"
+        return result
 
-            print(f"[Ollama] Response body: {exc.read().decode('utf-8', errors='replace')}")
 
 
+def classify_application_type_from_url(repo_url: str) -> dict:
+    """Make the first application-type prediction from a GitHub URL.
 
-        # Analysis should fail safely instead of leaving the UI spinning or returning a guessed label.
+    The model may know public repositories, but a URL alone does not give Ollama
+    browsing capability. Therefore this prediction is provisional and must be
+    checked against static-analysis evidence after the repository is downloaded.
+    """
+    import logging
+    import time
+    from urllib.parse import urlparse
 
-        if rule_type:
+    logger = logging.getLogger(__name__)
+    valid_types = sorted(APPLICATION_TYPES)
+    parsed = urlparse((repo_url or "").strip())
+    path_parts = [part for part in parsed.path.strip("/").split("/") if part]
+    if parsed.netloc.casefold() not in {"github.com", "www.github.com"} or len(path_parts) < 2:
+        logger.warning("[Ollama] URL-first classification skipped: invalid GitHub repository URL")
+        return {"application_type": None, "confidence": "low", "source": "unknown", "reason": "Invalid GitHub repository URL"}
 
-            return _base_analysis(project_facts, rule_type, rule_confidence, rule_evidence)
+    owner, repo = path_parts[0], path_parts[1].removesuffix(".git")
+    prompt = f"""Predict the primary application type of this GitHub repository.
+GitHub URL: {repo_url}
+Repository owner: {owner}
+Repository name: {repo}
 
-        return _base_analysis(
+Choose exactly one category from: {', '.join(valid_types)}.
+If it is a library, framework, tool, or repository that does not clearly fit any category,
+return null. Do not invent browsing or repository contents. A known public repository may
+be identified from your existing knowledge, but be conservative when unsure.
+Return only JSON with keys application_type, confidence, reason.
+application_type must be one listed category or null. confidence must be low, medium, or high.
+reason must be a short explanation and must not claim that you fetched the repository.
+"""
+    payload = {
+        "model": OLLAMA_MODEL,
+        "messages": [
+            {"role": "system", "content": "Classify a repository from its identity only. Return valid JSON and do not claim to browse the web."},
+            {"role": "user", "content": prompt},
+        ],
+        "format": "json",
+        "stream": False,
+        "options": {"temperature": 0},
+    }
+    request = urllib.request.Request(
+        OLLAMA_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    started = time.perf_counter()
+    logger.info("[Ollama] URL-first application classification started; repo=%s/%s model=%s", owner, repo, OLLAMA_MODEL)
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            response_payload = json.loads(response.read().decode("utf-8"))
+        content = response_payload.get("message", {}).get("content", "")
+        logger.info("[Ollama] URL-first response received in %.2fs", time.perf_counter() - started)
+        logger.debug("[Ollama] URL-first raw response: %s", str(content)[:1200])
+        result = json.loads(content)
+        if not isinstance(result, dict):
+            raise ValueError("Ollama URL-first response was not a JSON object")
+        app_type = result.get("application_type")
+        confidence = str(result.get("confidence", "low")).casefold()
+        if app_type not in APPLICATION_TYPES:
+            app_type = None
+            confidence = "low"
+        # URL-only predictions are never treated as verified/high-confidence.
+        if confidence == "high":
+            confidence = "medium"
+        prediction = {
+            "application_type": app_type,
+            "confidence": confidence if confidence in {"low", "medium"} else "low",
+            "source": "ollama_url",
+            "reason": str(result.get("reason", ""))[:500],
+            "repository_url": repo_url,
+        }
+        logger.info("[Classification] URL-first prediction=%s; confidence=%s", app_type or "Unknown", prediction["confidence"])
+        return prediction
+    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as exc:
+        logger.warning("[Ollama] URL-first classification failed: %s", exc)
+        return {"application_type": None, "confidence": "low", "source": "unknown", "reason": "Ollama URL-first classification failed", "repository_url": repo_url}
 
-            project_facts,
 
-            None,
+def classify_application_type_from_project_name(project_name: str) -> dict:
+    """Make an initial Ollama application-type prediction from a ZIP identity.
 
-            "low",
+    This intentionally runs before extraction/static analysis, analogous to the
+    GitHub URL-first classifier. ZIP names are weak evidence, so unknown is valid.
+    """
+    import logging
+    import time
 
-            ["Automatic classification could not be confirmed; review the project evidence."]
+    logger = logging.getLogger(__name__)
+    identity = str(project_name or "").strip()
+    valid_types = sorted(APPLICATION_TYPES)
+    if not identity:
+        return {"application_type": None, "confidence": "low", "source": "unknown", "reason": "ZIP filename has no usable project name"}
 
+    prompt = f"""Predict the primary application type of this uploaded software project from its project/archive name only.
+Project/archive name: {identity}
+
+Choose exactly one category from: {', '.join(valid_types)}.
+If the name does not clearly indicate one category, return null. Do not assume repository contents,
+frameworks, infrastructure, or application behavior that the name does not establish.
+Return only JSON with keys application_type, confidence, reason.
+application_type must be one listed category or null. confidence must be low, medium, or high.
+reason must briefly explain the name-based prediction and must not claim the archive was inspected.
+"""
+    payload = {
+        "model": OLLAMA_MODEL,
+        "messages": [
+            {"role": "system", "content": "Classify a project from its archive identity only. Return valid JSON; do not claim to inspect files."},
+            {"role": "user", "content": prompt},
+        ],
+        "format": "json",
+        "stream": False,
+        "options": {"temperature": 0},
+    }
+    request = urllib.request.Request(
+        OLLAMA_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    started = time.perf_counter()
+    logger.info("[Ollama] ZIP identity-first classification started; project=%s model=%s", identity, OLLAMA_MODEL)
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            response_payload = json.loads(response.read().decode("utf-8"))
+        content = response_payload.get("message", {}).get("content", "")
+        logger.info("[Ollama] ZIP identity-first response received in %.2fs", time.perf_counter() - started)
+        logger.debug("[Ollama] ZIP identity-first raw response: %s", str(content)[:1200])
+        result = json.loads(content)
+        if not isinstance(result, dict):
+            raise ValueError("Ollama ZIP identity response was not a JSON object")
+        app_type = result.get("application_type")
+        confidence = str(result.get("confidence", "low")).casefold()
+        if app_type not in APPLICATION_TYPES:
+            app_type = None
+            confidence = "low"
+        if confidence not in {"low", "medium", "high"}:
+            confidence = "low"
+        # As with URL-first classification, identity-only predictions cannot be high confidence.
+        if confidence == "high":
+            confidence = "medium"
+        prediction = {
+            "application_type": app_type,
+            "confidence": confidence,
+            "source": "ollama_zip_identity",
+            "reason": str(result.get("reason", ""))[:500],
+            "project_name": identity,
+        }
+        logger.info("[Classification] ZIP identity-first prediction=%s; confidence=%s", app_type or "Unknown", confidence)
+        return prediction
+    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as exc:
+        logger.warning("[Ollama] ZIP identity-first classification failed: %s", exc)
+        return {"application_type": None, "confidence": "low", "source": "unknown", "reason": "Ollama ZIP identity-first classification failed", "project_name": identity}
+
+
+def analyze_project_facts(project_facts: dict, initial_classification: dict | None = None) -> dict:
+    """Resolve application type from an initial model prediction, then static rules.
+
+    GitHub and ZIP routes both provide an initial Ollama classification before
+    static analysis. A valid supported model label is preserved. If it is missing,
+    null, Unknown, or unsupported, static rules are the fallback. Static analysis
+    remains the source of all technical/workload facts.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+    initial = initial_classification if isinstance(initial_classification, dict) else {}
+    initial_type = initial.get("application_type")
+    initial_confidence = str(initial.get("confidence", "low")).casefold()
+    initial_source = str(initial.get("source", "ollama_initial"))
+    initial_reason = str(initial.get("reason", "")).strip()
+
+    if initial_type in APPLICATION_TYPES:
+        selected_type = initial_type
+        selected_confidence = initial_confidence if initial_confidence in {"low", "medium", "high"} else "low"
+        selected_evidence = [initial_reason] if initial_reason else [
+            f"Initial Ollama prediction from {initial_source}; static analysis retained for technical facts."
+        ]
+        source = "ollama_url" if initial_source == "ollama_url" else "ollama_zip_identity"
+    else:
+        rule_type, rule_confidence, rule_evidence = classify_application_type(project_facts)
+        selected_type = rule_type
+        selected_confidence = rule_confidence if rule_type else "low"
+        selected_evidence = list(rule_evidence) if rule_type else [
+            "Initial Ollama prediction was unavailable or unsupported, and static rules found no supported application type."
+        ]
+        source = "static_rules_fallback" if rule_type else "unknown"
+        logger.warning(
+            "[Classification] Initial Ollama prediction unavailable/invalid (%s); static fallback=%s; signals=%s",
+            initial_type or "Unknown", selected_type or "Unknown", selected_evidence,
         )
+
+    result = _base_analysis(project_facts, selected_type, selected_confidence, selected_evidence)
+    result["application_type_source"] = source
+    result["initial_application_type"] = initial_type
+    result["initial_application_type_confidence"] = initial_confidence
+    logger.info(
+        "[Classification] Final application type=%s; source=%s; confidence=%s",
+        selected_type or "Unknown", source, selected_confidence,
+    )
+    return result
