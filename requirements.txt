@@ -9,3 +9,4 @@ matplotlib
 seaborn
 pyjwt
 bcrypt
+email-validator
